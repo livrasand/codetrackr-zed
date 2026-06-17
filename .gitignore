@@ -1,0 +1,14 @@
+# Rust
+target/
+Cargo.lock
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+*.swp
+*.swo
+
+# Zed extension build artifacts
+*.wasm
