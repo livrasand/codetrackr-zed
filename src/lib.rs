@@ -31,14 +31,23 @@ impl CodeTrackrExtension {
 
         let asset_name = format!("codetrackr-ls-{target}");
 
-        // 3. Obtener la ultima release desde GitHub
+        // 3. Obtener la ultima release desde GitHub (incluye prereleases)
         let release = zed::latest_github_release(
             "livrasand/codetrackr-zed",
             GithubReleaseOptions {
                 require_assets: true,
-                pre_release: false,
+                pre_release: true,
             },
-        )?;
+        )
+        .map_err(|e| {
+            format!(
+                "No hay releases disponibles en GitHub: {e}\n\n\
+                 Para usar CodeTrackr, compila el language server manualmente:\n\
+                 cd ls && cargo build --release && \
+                 cp target/release/codetrackr-ls /usr/local/bin/\n\
+                 O crea un release en https://github.com/livrasand/codetrackr-zed/releases"
+            )
+        })?;
 
         let asset = release
             .assets
