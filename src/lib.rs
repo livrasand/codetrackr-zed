@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use zed_extension_api::{
     self as zed, serde_json, Architecture, GithubReleaseOptions, LanguageServerId, Os, Worktree,
 };
@@ -8,6 +10,11 @@ struct CodeTrackrExtension {
 
 impl CodeTrackrExtension {
     fn download_binary(&self, worktree: &Worktree) -> zed::Result<String> {
+        // La extension se inicializa con PWD como working directory.
+        // download_file solo puede escribir dentro de ese directorio,
+        // asi que usamos rutas relativas y construimos la ruta absoluta.
+        let cwd = std::env::current_dir()
+            .map_err(|e| format!("Error obteniendo directorio de trabajo: {e}"))?;
         // 1. Si ya esta en el PATH del usuario, usarlo directamente
         if let Some(path) = worktree.which("codetrackr-ls") {
             return Ok(path);
@@ -31,21 +38,20 @@ impl CodeTrackrExtension {
 
         let asset_name = format!("codetrackr-ls-{target}");
 
-        // 3. Obtener la ultima release desde GitHub (incluye prereleases)
+        // 3. Obtener la release desde GitHub
         let release = zed::latest_github_release(
             "livrasand/codetrackr-zed",
             GithubReleaseOptions {
                 require_assets: true,
-                pre_release: true,
+                pre_release: false,
             },
         )
         .map_err(|e| {
             format!(
                 "No hay releases disponibles en GitHub: {e}\n\n\
                  Para usar CodeTrackr, compila el language server manualmente:\n\
-                 cd ls && cargo build --release && \
-                 cp target/release/codetrackr-ls /usr/local/bin/\n\
-                 O crea un release en https://github.com/livrasand/codetrackr-zed/releases"
+                 cd ls && cargo build --release\n\
+                 y copia el binario a un directorio en tu PATH"
             )
         })?;
 
@@ -57,37 +63,41 @@ impl CodeTrackrExtension {
                 format!(
                     "No hay binario pre-compilado para {target}. \
                      Asset esperado: {asset_name}\n\n\
-                     Si aun no hay releases, compila manualmente:\n\
-                     cd ls && cargo build --release && \
-                     cp target/release/codetrackr-ls /usr/local/bin/"
+                     Compilacion manual:\n\
+                     cd ls && cargo build --release"
                 )
             })?;
 
-        // 4. Descargar a un lugar persistente
-        let env = worktree.shell_env();
-        let home = get_env(&env, "HOME")
-            .ok_or_else(|| "Variable HOME no encontrada en el entorno".to_string())?;
-
-        let bin_path = format!("{home}/.local/share/codetrackr/bin/codetrackr-ls");
+        // 4. Descargar usando nombre relativo (download_file solo permite
+        //    escribir dentro del working directory de la extension)
+        let binary_name = match os {
+            Os::Windows => "codetrackr-ls.exe",
+            _ => "codetrackr-ls",
+        };
 
         zed::download_file(
             &asset.download_url,
-            &bin_path,
+            binary_name,
             zed::DownloadedFileType::Uncompressed,
         )
         .map_err(|e| {
             format!(
                 "Error descargando codetrackr-ls ({target}): {e}\n\n\
-                 Instalacion manual:\n\
-                 cd ls && cargo build --release && \
-                 cp target/release/codetrackr-ls /usr/local/bin/"
+                 Compilacion manual:\n\
+                 cd ls && cargo build --release"
             )
         })?;
 
-        zed::make_file_executable(&bin_path)
+        zed::make_file_executable(binary_name)
             .map_err(|e| format!("Error haciendo ejecutable codetrackr-ls: {e}"))?;
 
-        Ok(bin_path)
+        let bin_path = cwd.join(binary_name);
+        let bin_path_str = bin_path
+            .to_str()
+            .ok_or_else(|| "Ruta invalida".to_string())?
+            .to_string();
+
+        Ok(bin_path_str)
     }
 }
 
